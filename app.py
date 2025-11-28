@@ -7,9 +7,7 @@ import mediapipe as mp
 import os
 import time
 
-# -----------------------
-# ตั้งค่าหน้าเว็บ
-# -----------------------
+# หน้าเว็บ
 st.set_page_config(
     page_title="Ergonomic",
     page_icon="🪑",
@@ -19,7 +17,7 @@ st.set_page_config(
 st.title("Ergonomic")
 st.caption("ใช้ YOLO + Pose ประเมินมุมคอ หลัง เข่า จากภาพด้านข้าง")
 
-# โหลดโมเดล YOLO (cache)
+# โหลดโมเดล YOLO
 @st.cache_resource
 def load_yolo_model():
     model_path = "best.pt"
@@ -405,3 +403,4 @@ elif mode == "Livecam":
                 time.sleep(0.05)
 
             cap.release()
+
