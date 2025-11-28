@@ -1,0 +1,3 @@
+streamlit==1.46.1
+ultralytics==8.0.166
+mediapipe==0.10.1 
