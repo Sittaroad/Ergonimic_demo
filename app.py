@@ -5,19 +5,18 @@ from PIL import Image
 from ultralytics import YOLO
 import mediapipe as mp
 import os
-import time
 
-# หน้าเว็บ
+# ตั้งค่าหน้าเว็บ
 st.set_page_config(
-    page_title="Ergonomic",
+    page_title="Ergonomic Sitting Posture Checker",
     page_icon="🪑",
     layout="centered"
 )
 
-st.title("Ergonomic")
-st.caption("ใช้ YOLO + Pose ประเมินมุมคอ หลัง เข่า จากภาพด้านข้าง")
+st.title("🪑 ตรวจท่านั่งตามหลักการยศาสตร์")
+st.caption("เช็กท่านั่งจากภาพนิ่ง ด้วย YOLO + MediaPipe Pose + กฎยศาสตร์แบบอ่านง่าย")
 
-# โหลดโมเดล YOLO
+# โหลดโมเดล YOLO 
 @st.cache_resource
 def load_yolo_model():
     model_path = "best.pt"
@@ -29,20 +28,21 @@ def load_yolo_model():
 
 yolo_model = load_yolo_model()
 
-#MediaPipe Pose
+# เตรียม MediaPipe Pose
 mp_pose = mp.solutions.pose
 mp_drawing = mp.solutions.drawing_utils
 
 pose = mp_pose.Pose(
-    static_image_mode=False,
+    static_image_mode=True,  
     model_complexity=1,
     enable_segmentation=False,
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
 )
 
-# ฟังก์ชันช่วยด้านยศาสตร์
+# ฟังก์ชันช่วยด้านยศาสตร์-
 def calculate_angle(a, b, c):
+    """คำนวณมุมระหว่างจุด a-b-c ในหน่วยองศา"""
     a = np.array(a)
     b = np.array(b)
     c = np.array(c)
@@ -60,12 +60,16 @@ def calculate_angle(a, b, c):
     angle = np.degrees(np.arccos(cos_ang))
     return angle
 
+
 def flex_from_straight(angle):
+    """แปลงมุมจาก 'สามจุด' ให้กลายเป็นการเบี่ยงจากแนวตรง (180°)"""
     if angle is None:
         return None
     return abs(180.0 - angle)
 
+
 def choose_side_landmarks(landmarks):
+    """เลือกฝั่งซ้าย/ขวาที่เห็นชัดกว่า แล้วคืนจุด ear, shoulder, hip, knee, ankle"""
     lm = mp_pose.PoseLandmark
 
     def get_xyz(id_):
@@ -104,9 +108,13 @@ def choose_side_landmarks(landmarks):
         "ankle": ankle,
     }
 
+
 def classify_ergonomic(neck_flex, trunk_flex, knee_angle):
+    """สรุประดับท่านั่ง + ข้อความ explanation แบบเป็นมิตร"""
     if neck_flex is None or trunk_flex is None or knee_angle is None:
-        return "ไม่แน่ใจ", "unknown", ["ตรวจจับจุดสำคัญไม่ครบ (neck/trunk/knee เป็น None)"]
+        return "ยังวิเคราะห์ไม่ครบ", "unknown", [
+            "ระบบยังเห็นตัวไม่ชัดทุกจุด ลองนั่งให้กล้องเห็นด้านข้างทั้งตัว หัว–หลัง–เข่า–ข้อเท้าให้ครบก่อนนะ"
+        ]
 
     reason = []
 
@@ -115,10 +123,10 @@ def classify_ergonomic(neck_flex, trunk_flex, knee_angle):
         reason.append(f"คออยู่ในช่วงดี (เบี่ยงจากแนวตรง ~ {neck_flex:.1f}°)")
         neck_score = 2
     elif neck_flex <= 45:
-        reason.append(f"คอเริ่มก้ม/เงยมาก (~ {neck_flex:.1f}°)")
+        reason.append(f"คอเริ่มก้ม/เงย (~ {neck_flex:.1f}°) ลองยกหน้าจอให้สูงขึ้นระดับสายตา")
         neck_score = 1
     else:
-        reason.append(f"คอก้ม/เงยมากเกินไป (~ {neck_flex:.1f}°)")
+        reason.append(f"คอก้ม/เงยมาก (~ {neck_flex:.1f}°) ระวังปวดคอ ลองขยับเก้าอี้หรือยกจอขึ้น")
         neck_score = 0
 
     # หลัง
@@ -126,10 +134,10 @@ def classify_ergonomic(neck_flex, trunk_flex, knee_angle):
         reason.append(f"หลังอยู่ในช่วงดี (เบี่ยงจากแนวตรง ~ {trunk_flex:.1f}°)")
         trunk_score = 2
     elif trunk_flex <= 45:
-        reason.append(f"หลังเริ่มเอน/งอมาก (~ {trunk_flex:.1f}°)")
+        reason.append(f"หลังเริ่มเอน/งอ (~ {trunk_flex:.1f}°) ลองดันสะโพกให้ชิดพนักพิงมากขึ้น")
         trunk_score = 1
     else:
-        reason.append(f"หลังงอมากเกินไป (~ {trunk_flex:.1f}°)")
+        reason.append(f"หลังงอเยอะ (~ {trunk_flex:.1f}°) เสี่ยงปวดหลัง ลองเอนหลังพิงเก้าอี้ให้มากขึ้น")
         trunk_score = 0
 
     # เข่า
@@ -137,31 +145,34 @@ def classify_ergonomic(neck_flex, trunk_flex, knee_angle):
         reason.append(f"มุมเข่าอยู่ในช่วงเหมาะสม (~ {knee_angle:.1f}°)")
         knee_score = 2
     else:
-        reason.append(f"มุมเข่าอาจไม่เหมาะสม (~ {knee_angle:.1f}°)")
+        reason.append(f"มุมเข่าอาจไม่ค่อยพอดี (~ {knee_angle:.1f}°) ลองปรับระยะเก้าอี้กับโต๊ะหรือความสูงเก้าอี้")
         knee_score = 1
 
     total = neck_score + trunk_score + knee_score
 
     if total >= 5:
-        status = "ท่านั่งดีตามหลักการยศาสตร์"
+        status = "ท่านั่งตอนนี้สบายต่อร่างกายค่อนข้างดีเลย 😊"
         level = "good"
     elif total >= 3:
-        status = "ท่านั่งพอใช้ แต่ควรปรับบางจุด"
+        status = "ท่านั่งตอนนี้พอใช้ได้ แต่มีบางจุดที่ถ้าขยับอีกนิดจะสบายขึ้นเยอะ 😉"
         level = "caution"
     else:
-        status = "ท่านั่งเสี่ยงต่อการปวดเมื่อย/บาดเจ็บ"
+        status = "ตอนนี้ร่างกายเริ่มเครียดจากท่านั่งนี้ ลองขยับปรับท่าสักหน่อยนะ 🙏"
         level = "poor"
 
     return status, level, reason
 
-# วิเคราะห์ด้วย MediaPipe (fallback)
+
+# วิเคราะห์ด้วย MediaPipe ทั้งภาพ (fallback)
 def analyze_posture_mediapipe_full(img_bgr):
     img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
     results = pose.process(img_rgb)
 
     if not results.pose_landmarks:
         out = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        return out, None, None, None, None, "unknown", ["ไม่พบโครงร่างบุคคลในภาพ"]
+        return out, None, None, None, None, "unknown", [
+            "ไม่พบโครงร่างบุคคลในภาพ ลองขยับให้อยู่กลางเฟรม และให้กล้องเห็นทั้งตัวมากขึ้น"
+        ], "ยังวิเคราะห์ไม่ครบ"
 
     landmarks = results.pose_landmarks.landmark
     side, pts = choose_side_landmarks(landmarks)
@@ -190,7 +201,8 @@ def analyze_posture_mediapipe_full(img_bgr):
     )
 
     out_rgb = cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB)
-    return out_rgb, side, neck_flex, trunk_flex, knee_angle, level, reason
+    return out_rgb, side, neck_flex, trunk_flex, knee_angle, level, reason, status
+
 
 # วิเคราะห์ด้วย YOLO (+ fallback)
 def analyze_posture_yolo_ergonomic(img_bgr, yolo_conf=0.3):
@@ -204,7 +216,7 @@ def analyze_posture_yolo_ergonomic(img_bgr, yolo_conf=0.3):
     r = results[0]
     boxes = r.boxes
 
-    # box area
+    # เลือกกล่องใหญ่สุด
     areas = []
     for box in boxes:
         x1, y1, x2, y2 = box.xyxy[0].tolist()
@@ -215,8 +227,8 @@ def analyze_posture_yolo_ergonomic(img_bgr, yolo_conf=0.3):
     x1, y1, x2, y2 = box.xyxy[0].tolist()
     x1 = max(0, int(x1))
     y1 = max(0, int(y1))
-    x2 = min(h, int(x2))
-    y2 = min(w, int(y2))
+    x2 = min(w, int(x2))
+    y2 = min(h, int(y2))
 
     cls_id = int(box.cls[0])
     conf = float(box.conf[0])
@@ -274,133 +286,84 @@ def analyze_posture_yolo_ergonomic(img_bgr, yolo_conf=0.3):
     )
 
     out_rgb = cv2.cvtColor(annotated_full, cv2.COLOR_BGR2RGB)
-    return out_rgb, side, neck_flex, trunk_flex, knee_angle, level, reason
+    return out_rgb, side, neck_flex, trunk_flex, knee_angle, level, reason, status
 
-
-# UI หลัก
+# UI หลัก: upload + camera_input
 st.divider()
+
 mode = st.radio(
-    "เลือกแหล่งภาพ",
-    ["อัปโหลดรูป", "ถ่ายจากกล้อง", "Livecam"],
+    "เลือกวิธีใส่ภาพ",
+    ["อัปโหลดรูป", "ถ่ายด้วยกล้อง (เบราว์เซอร์)"],
     horizontal=True
 )
 
 yolo_conf = st.slider(
-    "confidence",
+    "YOLO confidence",
     0.1, 0.9, 0.3, 0.05,
-    help="ใช้กำหนดความมั่นใจขั้นต่ำของ YOLO ก่อนนับว่าเจอคน"
+    help="ปรับความมั่นใจขั้นต่ำของ YOLO ก่อนนับว่าพบคนในภาพ"
 )
 
-# โหมด 1–2: ภาพนิ่ง (upload/snapshot)
-if mode in ["อัปโหลดรูป", "ถ่ายจากกล้อง"]:
-    img_bgr = None
+img_bgr = None
+img_rgb = None
 
-    if mode == "อัปโหลดรูป":
-        file = st.file_uploader("อัปโหลดรูปท่านั่ง (ด้านข้างจะแม่นกว่า)", type=["jpg", "jpeg", "png"])
-        if file is not None:
-            pil_img = Image.open(file).convert("RGB")
-            img_rgb = np.array(pil_img)
-            img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-            st.image(img_rgb, caption="ภาพต้นฉบับ", use_container_width=True)
+if mode == "อัปโหลดรูป":
+    file = st.file_uploader(
+        "อัปโหลดรูปท่านั่ง (ภาพด้านข้างจะวิเคราะห์ได้ดีที่สุด)",
+        type=["jpg", "jpeg", "png"]
+    )
+    if file is not None:
+        pil_img = Image.open(file).convert("RGB")
+        img_rgb = np.array(pil_img)
+        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        st.image(img_rgb, caption="ภาพต้นฉบับ", use_container_width=True)
 
-    elif mode == "ถ่ายจากกล้อง":
-        picture = st.camera_input("ถ่ายภาพจากกล้อง")
-        if picture is not None:
-            pil_img = Image.open(picture).convert("RGB")
-            img_rgb = np.array(pil_img)
-            img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
-            st.image(img_rgb, caption="ภาพที่ถ่าย", use_container_width=True)
+elif mode == "ถ่ายด้วยกล้อง (เบราว์เซอร์)":
+    picture = st.camera_input("ถ่ายภาพท่านั่งจากกล้องของเบราว์เซอร์")
+    if picture is not None:
+        pil_img = Image.open(picture).convert("RGB")
+        img_rgb = np.array(pil_img)
+        img_bgr = cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+        st.image(img_rgb, caption="ภาพที่ถ่าย", use_container_width=True)
 
-    analyze_btn = st.button("วิเคราะห์")
+analyze_btn = st.button("🔍 วิเคราะห์ท่านั่งจากภาพนี้")
 
-    if analyze_btn:
-        if img_bgr is None:
-            st.warning("กรุณาเลือกหรือตั้งค่าภาพก่อน")
-        else:
-            result_img, side, neck_flex, trunk_flex, knee_angle, level, reason = \
-                analyze_posture_yolo_ergonomic(img_bgr, yolo_conf=yolo_conf)
+if analyze_btn:
+    if img_bgr is None:
+        st.warning("ยังไม่มีภาพให้วิเคราะห์ ลองอัปโหลดหรือถ่ายภาพก่อนนะ 🙂")
+    else:
+        result_img, side, neck_flex, trunk_flex, knee_angle, level, reason, status = \
+            analyze_posture_yolo_ergonomic(img_bgr, yolo_conf=yolo_conf)
 
-            st.subheader("ผลการวิเคราะห์")
+        st.subheader("ผลการวิเคราะห์ท่านั่ง")
 
-            # layout: ซ้ายภาพ / ขวาข้อมูล
-            col_img, col_info = st.columns([2, 1])
+        col_img, col_info = st.columns([2, 1])
 
-            with col_img:
-                st.image(result_img, use_container_width=True)
+        with col_img:
+            st.image(result_img, use_container_width=True)
 
-            with col_info:
-                st.markdown("**ค่ามุมสำคัญ**")
-                st.write(f"- ด้านที่ใช้วิเคราะห์: `{side}`")
-                st.write(f"- Neck flex (เบี่ยงจากแนวตรง): " +
-                         (f"{neck_flex:.1f}°" if neck_flex is not None else "ไม่สามารถคำนวณได้"))
-                st.write(f"- Trunk flex (เบี่ยงจากแนวตรง): " +
-                         (f"{trunk_flex:.1f}°" if trunk_flex is not None else "ไม่สามารถคำนวณได้"))
-                st.write(f"- Knee angle (มุมเข่า): " +
-                         (f"{knee_angle:.1f}°" if knee_angle is not None else "ไม่สามารถคำนวณได้"))
+        with col_info:
+            st.markdown("**ภาพรวมท่านั่ง**")
+            if level == "good":
+                st.success(status)
+            elif level == "caution":
+                st.warning(status)
+            elif level == "poor":
+                st.error(status)
+            else:
+                st.info(status)
 
+            st.markdown("---")
+            st.markdown("**ค่ามุมสำคัญ**")
+            st.write(f"- ด้านที่ใช้วิเคราะห์: `{side}`")
+            st.write(f"- Neck flex (คอเบี่ยงจากแนวตรง): " +
+                     (f"{neck_flex:.1f}°" if neck_flex is not None else "ยังคำนวณไม่ได้"))
+            st.write(f"- Trunk flex (หลังเบี่ยงจากแนวตรง): " +
+                     (f"{trunk_flex:.1f}°" if trunk_flex is not None else "ยังคำนวณไม่ได้"))
+            st.write(f"- Knee angle (มุมเข่า): " +
+                     (f"{knee_angle:.1f}°" if knee_angle is not None else "ยังคำนวณไม่ได้"))
+
+            if reason:
                 st.markdown("---")
-                st.markdown("**สรุปตามหลักการยศาสตร์**")
-                if level == "good":
-                    st.success("✅ ท่านั่งดีตามหลักการยศาสตร์")
-                elif level == "caution":
-                    st.warning("⚠️ ท่านั่งพอใช้ แต่ควรปรับบางจุด")
-                elif level == "poor":
-                    st.error("❌ ท่านั่งเสี่ยงต่อการปวดเมื่อย/บาดเจ็บ")
-                else:
-                    st.info("ไม่สามารถประเมินได้แน่ชัดจากภาพนี้")
-
-                if reason:
-                    st.markdown("**รายละเอียดเพิ่มเติม**")
-                    for r in reason:
-                        st.write("- " + r)
-
-# โหมด 3: Livecam
-elif mode == "Livecam":
-    start_live = st.button("▶ เริ่ม Livecam")
-
-    if start_live:
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            st.error("ไม่สามารถเปิดกล้องได้ (cv2.VideoCapture(0) ล้มเหลว)")
-        else:
-            # ทำ layout ซ้าย/ขวา สำหรับ live ด้วย
-            col_img, col_info = st.columns([2, 1])
-            frame_placeholder = col_img.empty()
-            info_placeholder = col_info.empty()
-
-            # รันประมาณ 300 เฟรม
-            for _ in range(300):
-                ret, frame = cap.read()
-                if not ret:
-                    st.warning("อ่านเฟรมจากกล้องไม่ได้")
-                    break
-
-                result_img, side, neck_flex, trunk_flex, knee_angle, level, reason = \
-                    analyze_posture_yolo_ergonomic(frame, yolo_conf=yolo_conf)
-
-                frame_placeholder.image(result_img, use_container_width=True)
-
-                with info_placeholder.container():
-                    st.markdown("**ค่ามุม (อัปเดตจากกล้องสด)**")
-                    st.write(f"- ด้านที่ใช้วิเคราะห์: `{side}`")
-                    st.write(f"- Neck flex: " +
-                             (f"{neck_flex:.1f}°" if neck_flex is not None else "N/A"))
-                    st.write(f"- Trunk flex: " +
-                             (f"{trunk_flex:.1f}°" if trunk_flex is not None else "N/A"))
-                    st.write(f"- Knee angle: " +
-                             (f"{knee_angle:.1f}°" if knee_angle is not None else "N/A"))
-
-                    st.markdown("---")
-                    if level == "good":
-                        st.success("✅ ท่านั่งดีตามหลักการยศาสตร์")
-                    elif level == "caution":
-                        st.warning("⚠️ ท่านั่งพอใช้ แต่ควรปรับบางจุด")
-                    elif level == "poor":
-                        st.error("❌ ท่านั่งเสี่ยงต่อการปวดเมื่อย/บาดเจ็บ")
-                    else:
-                        st.info("ยังประเมินได้ไม่ชัดจากเฟรมนี้")
-
-                time.sleep(0.05)
-
-            cap.release()
-
+                st.markdown("**คำแนะนำเชิงยศาสตร์ (เอาไปใส่รายงานได้เลย)**")
+                for r in reason:
+                    st.write("• " + r)
